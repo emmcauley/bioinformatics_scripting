@@ -1,0 +1,164 @@
+import os
+import glob
+from snakemake.logging import logger
+import pandas as pandas
+import csv
+import json
+import time
+from csv import DictReader
+
+###################################
+#Python Functions
+###################################
+
+def getsrrs(SAMPLES):
+	'''takes in a list of samples, returns list of SRR base names'''
+	l = []
+	for sample in SAMPLES:
+		l.append(sample.split('_')[0])
+	return list(set(l))
+
+###################################
+#Setting target directories
+###################################
+FASTQ_DIR='input_data/'
+RAW_QC_DIR='results/fastqc/'
+TRIM_DIR='results/trimmedReads/'
+FQC_TRIM_DIR='results/QCtrimmedReads/'
+SPADES_PE_DIR='results/spades_pe/'
+BENCHMARK_DIR='results/benchmarks/'
+QUAST_DIR='results/quast/'
+SEQSERO_DIR='results/seqsero/'
+STATS_DIR='results/stats/'
+
+SAMPLES = glob.glob1(FASTQ_DIR,"*.fastq")
+SRRS = getsrrs(SAMPLES)
+
+READS = ['1','2']
+
+
+rule all:
+	input:
+		[RAW_QC_DIR+"{sample}_1_fastqc.html".format(sample=sample) for sample in SRRS],
+		[RAW_QC_DIR+"{sample}_1_fastqc.zip".format(sample=sample) for sample in SRRS],
+		[RAW_QC_DIR+"{sample}_2_fastqc.html".format(sample=sample) for sample in SRRS],
+		[RAW_QC_DIR+"{sample}_2_fastqc.zip".format(sample=sample) for sample in SRRS],
+		[TRIM_DIR+"{sample}_1P.fastq".format(sample=sample) for sample in SRRS],
+		[TRIM_DIR+"{sample}_2P.fastq".format(sample=sample) for sample in SRRS],
+		[FQC_TRIM_DIR+"{sample}_1P_fastqc.html".format(sample=sample) for sample in SRRS],
+		[FQC_TRIM_DIR+"{sample}_1P_fastqc.zip".format(sample=sample) for sample in SRRS],
+		[FQC_TRIM_DIR+"{sample}_2P_fastqc.html".format(sample=sample) for sample in SRRS],
+		[FQC_TRIM_DIR+"{sample}_2P_fastqc.zip".format(sample=sample) for sample in SRRS],
+		[SPADES_PE_DIR+"{sample}/scaffolds.fasta".format(sample=sample) for sample in SRRS],
+		[SPADES_PE_DIR+"{sample}/contigs.fasta".format(sample=sample) for sample in SRRS],
+	#	[QUAST_DIR+"{sample}/report.html".format(sample=sample) for sample in SRRS],
+		[SEQSERO_DIR+"{sample}/SeqSero_result.tsv".format(sample=sample) for sample in SRRS],
+	#	STATS_DIR+"ResFinder_result.tsv",
+	#	STATS_DIR+"dag.pdf",
+		STATS_DIR+"dag.png"
+
+rule dag:
+	input:
+		"Snakefile"
+	output:
+#		pdf=STATS_DIR+"dag.pdf",
+		png=STATS_DIR+"dag.png"
+	shell:
+		"snakemake --forceall --rulegraph | dot -Tpng > {output.png}"
+	#	"""snakemake --forceall --rulegraph | dot -Tpdf > {output.pdf}"""
+
+rule rawFastQC:
+	input:
+		rawread=FASTQ_DIR+"{sample}_{read}.fastq"
+	output:
+		zip=RAW_QC_DIR+"{sample}_{read}_fastqc.zip",
+		html=RAW_QC_DIR+"{sample}_{read}_fastqc.html"
+	params:
+		path=RAW_QC_DIR
+	benchmark:
+		BENCHMARK_DIR+"{sample}/{sample}_{read}_rawFastQC.txt"
+	conda:
+		"envs/fastqc.yaml"
+	shell:
+		"""
+		fastqc {input.rawread} --o {params.path}
+		"""
+
+rule trimmomatic:
+	input:
+		read1=FASTQ_DIR+"{sample}_1.fastq",
+		read2=FASTQ_DIR+"{sample}_2.fastq"
+	output:
+		forwardPaired = TRIM_DIR+"{sample}_1P.fastq",
+		revPaired = TRIM_DIR+"{sample}_2P.fastq",
+	params:
+		basename=TRIM_DIR+"{sample}.fastq",
+		log=TRIM_DIR+"{sample}.log"
+	benchmark:
+		BENCHMARK_DIR+"{sample}/{sample}_trimmomatic.txt"
+	conda:
+		"envs/trimmomatic.yaml"
+	shell:
+		"""trimmomatic PE {input.read1} {input.read2} -baseout {params.basename} ILLUMINACLIP:refs/TruSeq3-PE.fa:2:30:10:2:keepBothReads LEADING:3 TRAILING:3 MINLEN:36 2>{params.log}"""
+rule trim_fastqc:
+	input:	
+		read1=rules.trimmomatic.output.forwardPaired,
+		read2=rules.trimmomatic.output.revPaired
+	output:
+		zip=FQC_TRIM_DIR+"{sample}_{read}_fastqc.zip",
+		html=FQC_TRIM_DIR+"{sample}_{read}_fastqc.html"
+	params:
+		path=FQC_TRIM_DIR
+	benchmark:
+		BENCHMARK_DIR+"{sample}/{sample}_{read}_FQCtrimmedreads.txt"
+	conda:
+		"envs/fastqc.yaml"
+	shell:
+		"""
+		fastqc {input.read1} {input.read2} --o {params.path}
+		"""
+rule spades:
+	input:
+		read1=rules.trimmomatic.output.forwardPaired,
+		read2=rules.trimmomatic.output.revPaired
+	output:
+		contigs=SPADES_PE_DIR+"{sample}/contigs.fasta",
+		scaffolds=SPADES_PE_DIR+"{sample}/scaffolds.fasta"
+	params:
+		path=SPADES_PE_DIR+"{sample}/"
+	benchmark:
+		BENCHMARK_DIR+"{sample}/{sample}_SPAdes.txt"
+	conda:
+		"envs/spades.yaml"
+	shell:
+		"""spades.py -1 {input.read1} -2 {input.read2} --careful -o {params.path} """
+rule seqsero:
+	input:
+		scaffolds=rules.spades.output.scaffolds
+	output:
+		SEQSERO_DIR+"{sample}/SeqSero_result.tsv",
+		SEQSERO_DIR+"{sample}/SeqSero_log.txt",
+	params:
+		path=SEQSERO_DIR+"{sample}/"
+	benchmark:
+		BENCHMARK_DIR+"{sample}/{sample}_SeqSero.txt"
+	conda:
+		"envs/seqsero_test.yaml"
+	shell:
+		"""
+		SeqSero2_package.py -t 4 -i {input} -d {params.path} -p 10 -m k
+		"""
+
+		
+
+
+
+
+
+
+
+
+
+
+
+

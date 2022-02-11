@@ -1,0 +1,5 @@
+channels:
+  - bioconda
+dependencies:
+  - seqsero2 >=1.1.1
+
