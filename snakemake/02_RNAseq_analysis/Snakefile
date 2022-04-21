@@ -1,101 +1,110 @@
 import os
 import glob
+###################################
+#Python Functions
+###################################
 
+def getsrrs(SAMPLES):
+        '''takes in a list of samples, returns list of SRR base names'''
+        l = []
+        for sample in SAMPLES:
+                l.append(sample.split('_')[0])
+        return list(set(l))
 
-FASTQ_DIR = '/scratch/sra-cache/sra/fastq'
-RAW_QC_DIR = '/home/erin/mel357/results/fastqc/'
-TRIM_DIR='/home/erin/mel357/results/trimmedReads/'
-FQC_TRIM_DIR='/home/erin/mel357/results/QCtrimmedReads/'
-BENCHMARK_DIR='/home/erin/mel357/results/benchmarks/'
-MAPPED_DIR='/home/erin/mel357/results/mapped/'
+###################################
+#Setting target directories
+###################################
+
+FASTQ_DIR = '/scratch/sra-cache/sra/fastq/'
+RAW_QC_DIR = '/scratch/mel537/results/fastqc/'
+TRIM_DIR='/scratch/mel537/results/trimmedReads/'
+FQC_TRIM_DIR='/scratch/mel537/results/QCtrimmedReads/'
+BENCHMARK_DIR='/scratch/mel537/results/benchmarks/'
+MAPPED_DIR='/scratch/mel537/results/mapped/'
 
 SAMPLES = glob.glob1(FASTQ_DIR,"*.fastq")
-
+SRRS = getsrrs(SAMPLES)
+print(SRRS)
 
 rule all:
-	input:
-        [RAW_QC_DIR+"{sample}_fastqc.html".format(sample=sample) for sample in SRRS],
-		[RAW_QC_DIR+"{sample}_fastqc.zip".format(sample=sample) for sample in SRRS],
-		[RAW_QC_DIR+"{sample}_fastqc.html".format(sample=sample) for sample in SRRS],
-		[RAW_QC_DIR+"{sample}_fastqc.zip".format(sample=sample) for sample in SRRS],
-		[TRIM_DIR+"{sample}_1U.fastq".format(sample=sample) for sample in SRRS],
-		[FQC_TRIM_DIR+"{sample}_fastqc.html".format(sample=sample) for sample in SRRS],
-		[FQC_TRIM_DIR+"{sample}_fastqc.zip".format(sample=sample) for sample in SRRS],
+        input:
+                [RAW_QC_DIR+"{sample}_fastqc.html".format(sample=sample) for sample in SRRS],
+                [RAW_QC_DIR+"{sample}_fastqc.zip".format(sample=sample) for sample in SRRS],
+                [TRIM_DIR+"{sample}_pass_trimmed.fq".format(sample=sample) for sample in SRRS],
+                [FQC_TRIM_DIR+"{sample}_fastqc.html".format(sample=sample) for sample in SRRS],
+                [FQC_TRIM_DIR+"{sample}_fastqc.zip".format(sample=sample) for sample in SRRS],
+                "qc/multiqc.html",
+                [MAPPED_DIR + "{sample}.bam".format(sample=sample) for sample in SRRS]
 
 rule rawFastQC:
-	input:
-		rawread=FASTQ_DIR+"{sample}_pass.fastq"
-	output:
-		zip=RAW_QC_DIR+"{sample}_fastqc.zip",
-		html=RAW_QC_DIR+"{sample}_fastqc.html"
-	params:
-        "--quiet"
-    log:
-        "logs/fastqc/{sample}.log"
-    threads: 1
-    wrapper:
-        "v1.3.1/bio/fastqc"
-	benchmark:
-		BENCHMARK_DIR+"{sample}/{sample}_rawFastQC.txt"
-	conda:
-		"envs/fastqc.yml"
+        input:
+                rawread=FASTQ_DIR+"{sample}_pass.fastq"
+        output:
+                zip=RAW_QC_DIR+"{sample}_fastqc.zip",
+                html=RAW_QC_DIR+"{sample}_fastqc.html"
+        params: "--quiet"
+        log: "logs/fastqc/{sample}.log"
+        threads: 12
+        benchmark:
+                BENCHMARK_DIR+"{sample}/{sample}_rawFastQC.txt"
+        wrapper:
+                "v1.3.2/bio/fastqc"
 rule trimgalore:
-	input:
-		read=FASTQ_DIR+"{sample}_pass.fastq",
-    output:
-        TRIM_DIR+"{sample}_trimmed.fastq",
-        TRIM_DIR+"/{sample}.fastq_trimming_report.txt",
-    params:
-        extra="--illumina -q 20",
-    log:
-        "logs/trim_galore/{sample}.log",
-    benchmark:
-		BENCHMARK_DIR+"{sample}/{sample}_trimgalore.txt"
-	conda:
-		"envs/trimgalore.yml"
-    wrapper:
-        "v1.3.1/bio/trim_galore/se"
+        input:
+                read=rules.rawFastQC.input.rawread
+        output:
+                trimmed=TRIM_DIR+"{sample}_pass_trimmed.fq",
+                report=TRIM_DIR+"{sample}.fastq_trimming_report.txt"
+        params:
+                log="logs/trim_galore/{sample}.log"
+        benchmark:
+                BENCHMARK_DIR+"{sample}/{sample}_trimgalore.txt"
+        conda:
+                "envs/trimgalore.yml"
+        shell:
+                """
+                trim_galore -q 20 {input.read} -o {{FQC_TRIM_DIR}} 2>{params.log}
+                """
 rule trimFastQC:
-	input:
-		trimmedread=TRIM_DIR+"{sample}_pass.fastq"
-	output:
-		zip=FQC_TRIM_DIR+"{sample}_fastqc.zip",
-		html=FQC_TRIM_DIR+"{sample}_fastqc.html"
-	params:
-        "--quiet"
-    log:
-        "logs/trimmedfastqc/{sample}.log"
-    threads: 1
-    wrapper:
-        "v1.3.1/bio/fastqc"
-	benchmark:
-		BENCHMARK_DIR+"{sample}/{sample}_trimmedFastQC.txt"
-	conda:
-		"envs/fastqc.yml"
+        input:
+                trimmedread=rules.trimgalore.output.trimmed
+        output:
+                zip=FQC_TRIM_DIR+"{sample}_fastqc.zip",
+                html=FQC_TRIM_DIR+"{sample}_fastqc.html"
+        params:
+                "--quiet"
+        log:
+                "logs/trimmedfastqc/{sample}.log"
+        threads: 12
+        benchmark:
+                BENCHMARK_DIR+"{sample}/{sample}_trimmedFastQC.txt"
+#       conda:
+#               "envs/fastqc.yml"
+        wrapper:
+                "v1.3.2/bio/fastqc"
 rule multiqc:
-    input: 
-        expand(TRIM_DIR+"{sample}", sample=SAMPLES)
-    output:
-        "qc/multiqc.html"
-    params:
-        ""  # Optional: extra parameters for multiqc.
-    log:
-        "logs/multiqc.log"
-    wrapper:
-        "v1.3.1/bio/multiqc"
+        input: 
+                expand(FQC_TRIM_DIR+"{sample}_fastqc.html", sample=SRRS)
+        output:
+                "qc/multiqc.html"
+        params:
+                ""  # Optional: extra parameters for multiqc.
+        log:
+                "logs/multiqc.log"
+        wrapper:
+                "v1.3.1/bio/multiqc"
 rule hisat2_align:
-    input: #FIX THIS
-      reads=["reads/{sample}_R1.fastq", "reads/{sample}_R2.fastq"]
-    output:
-      MAPPED_DIR+"{sample}.bam"
-    log:
-        "logs/hisat2_align_{sample}.log"
-    params:
-      extra="",
-      idx="index/",
-    threads: 2
-    wrapper: #The -S flag must not be used since output is already directly piped to samtools for compression.
-      "v1.3.1/bio/hisat2/align"
-rule BCFeatureCount:
+        input: #FIX THIS
+                trimmedread=rules.trimgalore.output.trimmed
+        output:
+                MAPPED_DIR+"{sample}.bam"
+        log:
+                "logs/hisat2_align_{sample}.log"
+        params:
+                extra="",
+                idx="/scratch/mel537/index/",
+        wrapper: #The -S flag must not be used since output is already directly piped to samtools for compression.
+                "v1.3.1/bio/hisat2/align"
+#rule BCFeatureCount:
 
-rule DESeq2:
+#rule DESeq2:
