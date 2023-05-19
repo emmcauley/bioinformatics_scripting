@@ -1,12 +1,13 @@
-Goal: Translate a (0-based) transcript coordinate to a (0 based) genome coordinate 
+Goal: Translate a (0-based) transcript coordinate to a (0-based) genome coordinate 
 given the following information: chromosome, genomic start position, CIGAR string 
 (which indicates how the transcript maps to the genome sequence), and the transcript
 coordinate to query.
 
+Usage: `python3 tx_to_gen_coord.py -t input/transcripts.tsv -q input/query.tsv -o output/run1.tsv`
 1. Assumptions:
     * Transcript is always mapped from genomic 5' -> 3'
     * Do not need to accomodate rarer CIGAR annotations (S, H, =, etc.)
-    * Empty CIGAR strings are not valid input 
+    * Empty CIGAR strings are not valid inputs 
     * Tab-separated input is provided  
 
 2. Strengths:
