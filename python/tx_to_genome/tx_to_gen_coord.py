@@ -1,13 +1,4 @@
-from argparse import ArgumentParser
-import csv
-import re
-
 '''
-Invitae Coding Exercise, May 2023
-Erin McAuley
-PyLint score: 9.55/10
-
-
 Goal: Translate a (0-based) transcript coordinate to a (0 based) genome coordinate 
 given the following information: chromosome, genomic start position, CIGAR string 
 (which indicates how the transcript maps to the genome sequence), and the transcript
@@ -34,9 +25,12 @@ coordinate to query.
 
 
 4. Improvements
-    * Speed: use pandas to read-in data, use .applymap() to get_genome_pos()
+    * Speed: use pandas to read-in data, refactor to use .applymap() with get_genome_pos()
 
 '''
+from argparse import ArgumentParser
+import csv
+import re
 
 def assemble_transcript_dict(transcript_file: str) -> dict:
     '''
@@ -95,7 +89,7 @@ def is_cigar_valid(cigar_str: str) -> bool:
 
 def convert_cigar_string_to_list(cigar_str: str) -> list :
     '''
-    Uses RegEx to find all instances of a number (\d) repeated >=1 times followed by 
+    Uses RegEx to find all instances of a number (\\d) repeated >=1 times followed by 
     a word character and return that list. 
 
     Uses RegEx to look to see if there are two letters consecutively, in which case, 
@@ -140,14 +134,22 @@ def get_genome_pos(tr_coord: int, cigar: str, start_pos: int) -> int:
     cigar_list = convert_cigar_string_to_list(cigar)
 
     for span, cigar_type in cigar_list:
+        #if there are no more coords remaining, we're done!
         if int(tr_remain) == 0:
             break
         if cigar_type in ('M', 'X'):
+            #if it's a match or mismatch, both the gen_pos and tr_remain numbers are affected
+            #(e.g., we advance through both sequences)
+            #GENOME:CHR1 ACTGTCATGTACGTTTAGCTAGCC--TAGCTAGGGACCTAGATAATTTAGCTAG
+            #TR1            GTCATGTA-------CTAGCCGGTA-----------AGATAAT
             gen_pos += min(int(span), tr_remain)
             tr_remain -= min(tr_remain, int(span))
         elif cigar_type == 'D':
+            #if there is a deletion in the transcript, only the gen_pos is affected
             gen_pos += int(span)
         elif cigar_type == 'I':
+            #if there is an insertion in the transcript,
+            #only the tr_remain is affected (see above drawing)
             tr_remain -= min(tr_remain, int(span))
     if tr_remain > 0:
         return -1
@@ -160,18 +162,18 @@ def query_transcript(transcript_file, query_file, output_file) -> None:
     chromosome, and the genomic position of the query position.
 
     Args:
-        Transcript_file: path to the tsv of file transcripts.
-            4 columns: transcript ID, genomic chromosome, genomic position, and
-            cigar string.
-        Query_file: path to the tsv of queries.
+        Transcript_file: path to the transcript file (.tsv) -- each line is one transcript
+            composed of 4 columns: transcript ID, genomic chromosome, 
+            genomic position, and CIGAR string.
+        Query_file: path to the query file (.tsv) -- each line is one query composed of
             2 columns: transcript ID of query, and transcript coordinate of query
-        Output_file: path to output tsv.
-            A line for every line in query_file, and 4 coluns: transcript ID,
-            transcript coordinate, genomic chrom, and genomic position.
+        Output_file: path to output tsv -- for each query in query_file, 
+            each line in output_file composed of 4 columns: transcript ID,
+            transcript coordinate, genomic chromosome, and genomic position.
     Returns:
         --
     Raises:
-        ValueError: if either input tsvs have the wrong number of columns
+        ValueError: if either of the input files are malformed
     '''
 
     # Build transcript dict
