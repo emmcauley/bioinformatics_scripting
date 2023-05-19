@@ -87,7 +87,7 @@ def is_cigar_valid(cigar_str: str) -> bool:
     return bool(re.match(r'^([0-9]*[M|I|D|X])+$', cigar_str))
 
 
-def convert_cigar_string_to_list(cigar_str: str) -> list :
+def convert_cigar_string_to_list(cigar_str: str) -> list:
     '''
     Uses RegEx to find all instances of a number (\\d) repeated >=1 times followed by 
     a word character and return that list. 
@@ -225,19 +225,13 @@ def parse_args():
 
 def main(transcript_file, query_file, output_file):
     '''
-    Main function, wraps query_transcript
-
     Args:
-        transcript_file: path to the tsv of file transcripts.
-            4 columns: transcript ID, genomic chromosome, genomic position, and
-            cigar string.
-        query_file: path to the tsv of queries.
-            2 colunns: transcript ID to query, and transcript coordinate
-        out: path to output tsv.
-            A line for every line in query_file, and 4 coluns: transcript ID,
-            transcript coordinate, genomic chrom, and genomic position.
+        transcript_file: path to the transcript file (.tsv)
+        query_file: path to query file (.tsv)
+        out: path to output file (.tsv).
+  
     Returns:
-        None; writes an output file.
+        --
     '''
     query_transcript(
         transcript_file=transcript_file,
