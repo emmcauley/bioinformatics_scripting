@@ -8,10 +8,12 @@ coordinate to query.
     * Transcript is always mapped from genomic 5' -> 3'
     * Do not need to accomodate rarer CIGAR annotations (S, H, =, etc.)
     * Empty CIGAR strings are not valid input 
+    * Negative transcript coords are not allowed
     * Tab-separated input is provided  
 
 2. Strengths:
-    * Checks for valid input (number of columns in input files, CIGAR string formation)
+    * Checks for valid input (number of columns in input files, 
+        CIGAR string formation, empty strings)
     * Run time dependent on CIGAR length but function stops when tr_coord of interest is reached
     (so we don't have to go through the whole CIGAR string) 
 
@@ -22,7 +24,8 @@ coordinate to query.
     which is much faster than csvreader under the hood. 
     * RegEx adds some additional overhead; could just iterate through the CIGAR string as needed
     to ensure valid formatting
-
+    * Right now, my script does not allow output of valid queries + transcripts, and instead once
+    it runs into a malformed combo, the script stops running.
 
 4. Improvements
     * Speed: use pandas to read-in data, refactor to use .applymap() with get_genome_pos()
@@ -54,17 +57,25 @@ def assemble_transcript_dict(transcript_file: str) -> dict:
             if len(fields) != 4:
                 raise ValueError(f'Unexpected file format, expect 4 columns, \
                                 received {len(fields)} columns.')
-            tr_id, chrom, pos, cigar = fields
+            tx_id, chrom, pos, cigar = fields
+            if chrom == '' or tx_id == '' or pos == '' or cigar == '':
+                raise ValueError(f'Some data is missing, provided TX_ID {tx_id}, \
+                                    CHROM {chrom}, POS {pos}, CIGAR {cigar}')
+            if not chrom.startswith('CHR'):
+                raise ValueError(f'Malformed CHROM name, {chrom}, \
+                    expect CHR preceding a number/X/Y')
+            if not pos.isnumeric():
+                raise ValueError('Genomic position is not numeric!')
             if not is_cigar_valid(cigar):
                 raise ValueError(f'Invalid CIGAR string {cigar}.')
-            if tr_id not in transcripts:
-                transcripts[tr_id] = {
+            if tx_id not in transcripts:
+                transcripts[tx_id] = {
                     'gen_chrom': chrom,
                     'gen_start': int(pos),
                     'cigar': cigar
                 }
             else:
-                raise ValueError(f'Transcript {tr_id} is not unique.')
+                raise ValueError(f'Transcript {tx_id} may be duplicated.')
     return transcripts
 
 
@@ -126,11 +137,11 @@ def get_genome_pos(tr_coord: int, cigar: str, start_pos: int) -> int:
         cigar: valid CIGAR string (how the transcript maps to the genome)
         start_pos: genome start position
 
-    Return:
+    Returns:
         gen_pos: genomic position that corresponds to transcript coordinate
     '''
-    gen_pos = int(start_pos) - 1 # adjusting for 0-based index
-    tr_remain = int(tr_coord) + 1 # adjusting for 0-based index
+    gen_pos = int(start_pos) - 1 #adjusting for 0-based index
+    tr_remain = int(tr_coord) + 1 #adjusting for 0-based index
     cigar_list = convert_cigar_string_to_list(cigar)
 
     for span, cigar_type in cigar_list:
@@ -152,6 +163,10 @@ def get_genome_pos(tr_coord: int, cigar: str, start_pos: int) -> int:
             #only the tr_remain is affected (see above drawing)
             tr_remain -= min(tr_remain, int(span))
     if tr_remain > 0:
+        #after this for loop, if there are still bases remaining, then it is not a
+        #valid query.
+        print(f'Found invalid query starting from genomic coord {gen_pos}, \
+            using {cigar} CIGAR -- will be returned as -1 in output file!')
         return -1
     return gen_pos
 
@@ -181,24 +196,25 @@ def query_transcript(transcript_file, query_file, output_file) -> None:
 
     # Iterate through queries
     with open(output_file, 'w', encoding='utf-8') as out_f:
-        out_writer = csv.writer(out_f, delimiter='\t')
+        out_writer = csv.writer(out_f, delimiter='\t') #make sure output is tab-separated
         with open(query_file, 'r', encoding='utf-8') as query_f:
             for line in query_f:
                 fields = [i.strip() for i in line.split('\t')]
                 if len(fields) != 2:
                     raise ValueError(f'Unexpected format of query file, \
                         expected 2 columns, got {len(fields)} columns.')
-                tr_id, tr_coord = fields[0], int(fields[1])
-
+                tx_id, tr_coord = fields[0], int(fields[1])
+                if tr_coord < 0:
+                    raise ValueError(f'Coord {tr_coord} in {tx_id} is negative, and thus is not considered valid input!')
                 # Get query transcript info from transcript dict
-                gen_chrom = transcripts[tr_id]['gen_chrom']
-                gen_start = transcripts[tr_id]['gen_start']
-                cigar_str = transcripts[tr_id]['cigar']
+                gen_chrom = transcripts[tx_id]['gen_chrom']
+                gen_start = transcripts[tx_id]['gen_start']
+                cigar_str = transcripts[tx_id]['cigar']
                 gen_pos = get_genome_pos(
                     tr_coord=tr_coord,
                     cigar=cigar_str,
                     start_pos=gen_start)
-                out_writer.writerow([tr_id, tr_coord, gen_chrom, gen_pos])
+                out_writer.writerow([tx_id, tr_coord, gen_chrom, gen_pos])
 
 def parse_args():
     '''
