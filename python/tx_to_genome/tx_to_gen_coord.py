@@ -27,8 +27,18 @@ coordinate to query.
     * Right now, my script does not allow output of valid queries + transcripts, and instead once
     it runs into a malformed combo, the script stops running.
 
-4. Improvements
+4. Testing:
+    * I tested combinations of valid queries with invalid transcript_files and vice versa (see testing/input/*):
+        *I check that CHR column starts with 'CHR'
+        *I check that genome_position is an integer
+        *I check that no fields are empty
+        *I check validity of CIGAR string
+        *I check that tr_coord is not negative
+        *I check for duplicate transcript_ids
+
+5. Improvements
     * Speed: use pandas to read-in data, refactor to use .applymap() with get_genome_pos()
+    * Explicit Unit testing: instead of test cases in input files, write explicit unit tests 
 
 '''
 from argparse import ArgumentParser
